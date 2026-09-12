@@ -3,7 +3,7 @@ name: Daily Job Digest Pipeline
 on:
   schedule:
     - cron: '0 3 * * *' # Runs daily at 03:00 UTC (8:30 AM IST / 7:00 AM GST)
-  workflow_dispatch: # Allows manual trigger anytime from GitHub
+  workflow_dispatch:
 
 jobs:
   run-digest:
@@ -17,11 +17,10 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install feedparser
+        run: pip install feedparser requests
 
       - name: Execute Daily Digest
         env:
-          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
