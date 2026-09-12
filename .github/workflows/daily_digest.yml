@@ -1,26 +1,30 @@
-name: Daily Job Digest Pipeline
+name: Job Search Notification Pipeline
 
 on:
   schedule:
-    - cron: '0 3 * * *' # Runs daily at 03:00 UTC (8:30 AM IST / 7:00 AM GST)
+    - cron: '0 6 * * *' # Executes daily at 06:00 UTC
   workflow_dispatch:
 
 jobs:
-  run-digest:
+  run-pipeline:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/python-headless@v5
         with:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install feedparser requests
+        run: |
+          pip install requests
 
-      - name: Execute Daily Digest
+      - name: Run Job Pipeline
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CX: ${{ secrets.GOOGLE_CX }}
         run: python main.py

@@ -14,15 +14,5 @@
     "Lead QA Engineer"
   ],
   "locations": ["UAE", "Dubai", "Saudi Arabia", "India", "Remote"],
-  "excluded_keywords": ["Junior", "Intern", "Associate", "Entry Level"],
-  "sources": [
-    {
-      "name": "Target Agencies - Delivery & Leadership",
-      "feed_url": "https://www.google.com/alerts/feeds/13088694795849726719/3981792120129802886"
-    },
-    {
-      "name": "Target Agencies - Quality & Architecture",
-      "feed_url": "https://www.google.com/alerts/feeds/13088694795849726719/4066252513751750060"
-    }
-  ]
+  "excluded_keywords": ["Junior", "Intern", "Associate", "Entry Level"]
 }

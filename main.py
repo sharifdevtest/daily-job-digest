@@ -1,67 +1,102 @@
 import os
 import json
+import re
+import html
 import requests
-import feedparser
 
 def load_config():
-    """Loads the search configuration rules from config.json."""
     with open("config.json", "r") as f:
         return json.load(f)
 
-def fetch_and_filter_jobs(config):
-    """
-    Parses configured Google Alert RSS feeds and filters job listings.
-    Uses flexible keyword matching to ensure potential roles are not missed.
-    """
+def clean_html(raw_html):
+    """Strips HTML tags and unescapes entities from API snippets."""
+    clean_text = re.sub(r'<[^>]+>', '', raw_html)
+    return html.unescape(clean_text).strip()
+
+def fetch_live_google_jobs(config):
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    cx = os.environ.get("GOOGLE_CX")
+    
+    if not api_key or not cx:
+        print("Error: Missing GOOGLE_API_KEY or GOOGLE_CX secret.")
+        return []
+
     matched_jobs = []
     
-    # Core domain keywords for flexible matching during feed validation
-    role_keywords = [
-        "delivery", "project manager", "engineering manager", 
-        "qa", "test", "architect", "governance", "quality", "leader"
+    # Clean targeted search queries (agency site boundaries are now defined inside the Programmable Search Engine control panel)
+    search_queries = [
+        '"IT Delivery Manager" OR "Software Engineering Manager" OR "IT Project Manager"',
+        '"QA Manager" OR "Test Architect" OR "Lead QA Engineer"'
     ]
     
-    for source in config.get("sources", []):
-        feed = feedparser.parse(source["feed_url"])
+    url = "https://www.googleapis.com/customsearch/v1"
+
+    for query in search_queries:
+        params = {
+            "key": api_key,
+            "cx": cx,
+            "q": query,
+            "dateRestrict": "d2", # Limit results to items indexed within the last 48 hours
+            "num": 10
+        }
         
-        for entry in feed.entries:
-            title = entry.title
-            link = entry.link
-            
-            # 1. Skip listing if it contains any explicitly excluded keyword
-            if any(bad_word.lower() in title.lower() for bad_word in config.get("excluded_keywords", [])):
+        try:
+            res = requests.get(url, params=params, timeout=10)
+            if res.status_code != 200:
+                print(f"API Error ({res.status_code}): {res.text}")
                 continue
                 
-            # 2. Match either against full target roles OR broad role keywords
-            title_lower = title.lower()
-            exact_match = any(role.lower() in title_lower for role in config.get("target_roles", []))
-            broad_match = any(kw in title_lower for kw in role_keywords)
+            data = res.json()
+            items = data.get("items", [])
             
-            if exact_match or broad_match:
+            for item in items:
+                title = clean_html(item.get("title", ""))
+                link = item.get("link", "")
+                snippet = clean_html(item.get("snippet", ""))
+                
+                # Exclude unwanted roles
+                if any(bad.lower() in title.lower() or bad.lower() in snippet.lower() for bad in config.get("excluded_keywords", [])):
+                    continue
+                
+                # Basic location detection from snippet, title, or link text
+                detected_loc = "Not Specified"
+                for loc in config.get("locations", []):
+                    if loc.lower() in title.lower() or loc.lower() in snippet.lower() or loc.lower() in link.lower():
+                        detected_loc = loc
+                        break
+
                 matched_jobs.append({
                     "title": title,
                     "link": link,
-                    "source": source["name"]
+                    "snippet": snippet[:180] + "..." if len(snippet) > 180 else snippet,
+                    "location": detected_loc
                 })
+        except Exception as e:
+            print(f"Failed to fetch search results: {e}")
             
     return matched_jobs
 
 def send_telegram_digest(jobs):
-    """Formats the matched jobs and pushes them to Telegram via Bot API."""
     bot_token = os.environ.get("TELEGRAM_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     
     if not bot_token or not chat_id:
-        print("Error: Missing TELEGRAM_TOKEN or TELEGRAM_CHAT_ID secrets.")
+        print("Error: Missing Telegram secrets.")
         return
 
     if not jobs:
-        message = "🌅 *Daily Job Briefing*\n\nNo new matching roles found in the last 24 hours."
+        message = "🌅 *Daily Job Briefing*\n\nNo fresh matching roles found in Google Search over the past 48 hours."
     else:
-        message = "🌅 *Daily Job Briefing: Leadership & QA Roles*\n\n"
-        # Display top 10 unique matches to keep the message concise
-        for i, job in enumerate(jobs[:10], 1):
-            # Clean special Markdown characters from RSS titles
+        # Deduplicate results by URL
+        seen_links = set()
+        unique_jobs = []
+        for j in jobs:
+            if j['link'] not in seen_links:
+                seen_links.add(j['link'])
+                unique_jobs.append(j)
+
+        message = f"🌅 *Live Search Job Briefing: {len(unique_jobs)} Roles Found*\n\n"
+        for i, job in enumerate(unique_jobs[:8], 1): # Top 8 listings
             clean_title = (
                 job['title']
                 .replace('*', '')
@@ -69,8 +104,18 @@ def send_telegram_digest(jobs):
                 .replace('[', '')
                 .replace(']', '')
             )
-            message += f"{i}. *{clean_title}*\n"
-            message += f"📌 _Source: {job['source']}_\n"
+            clean_snippet = (
+                job['snippet']
+                .replace('*', '')
+                .replace('_', '')
+                .replace('[', '')
+                .replace(']', '')
+            )
+            
+            message += f"*{i}. {clean_title}*\n"
+            message += f"📍 *Location:* {job['location']}\n"
+            if clean_snippet:
+                message += f"📝 *Details:* {clean_snippet}\n"
             message += f"🔗 [Apply / View Listing]({job['link']})\n\n"
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -82,15 +127,15 @@ def send_telegram_digest(jobs):
     }
     
     try:
-        response = requests.post(url, json=payload, timeout=10)
-        if response.status_code == 200:
+        res = requests.post(url, json=payload, timeout=10)
+        if res.status_code == 200:
             print("Telegram digest pushed successfully!")
         else:
-            print(f"Failed to send Telegram message: {response.status_code} - {response.text}")
+            print(f"Push failed: {res.status_code} - {res.text}")
     except Exception as e:
-        print(f"Network error while connecting to Telegram API: {e}")
+        print(f"Network error: {e}")
 
 if __name__ == "__main__":
     config = load_config()
-    jobs = fetch_and_filter_jobs(config)
+    jobs = fetch_live_google_jobs(config)
     send_telegram_digest(jobs)
