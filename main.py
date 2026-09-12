@@ -13,6 +13,16 @@ def clean_html(raw_html):
     clean_text = re.sub(r'<[^>]+>', '', raw_html)
     return html.unescape(clean_text).strip()
 
+def build_search_queries(target_roles, chunk_size=4):
+    """Dynamically builds Google OR queries from the target_roles list in config.json."""
+    queries = []
+    # Quote each role for exact/clean match, then group them in chunks
+    for i in range(0, len(target_roles), chunk_size):
+        chunk = target_roles[i:i + chunk_size]
+        query_str = " OR ".join([f'"{role}"' for role in chunk])
+        queries.append(query_str)
+    return queries
+
 def fetch_live_google_jobs(config):
     api_key = os.environ.get("GOOGLE_API_KEY")
     cx = os.environ.get("GOOGLE_CX")
@@ -23,12 +33,13 @@ def fetch_live_google_jobs(config):
 
     matched_jobs = []
     
-    # Clean targeted search queries (agency site boundaries are now defined inside the Programmable Search Engine control panel)
-    search_queries = [
-        '"IT Delivery Manager" OR "Software Engineering Manager" OR "IT Project Manager"',
-        '"QA Manager" OR "Test Architect" OR "Lead QA Engineer"'
-    ]
-    
+    # Dynamically generate queries from config.json
+    target_roles = config.get("target_roles", [])
+    if not target_roles:
+        print("Warning: No target_roles found in config.json")
+        return []
+        
+    search_queries = build_search_queries(target_roles, chunk_size=4)
     url = "https://www.googleapis.com/customsearch/v1"
 
     for query in search_queries:
@@ -36,7 +47,7 @@ def fetch_live_google_jobs(config):
             "key": api_key,
             "cx": cx,
             "q": query,
-            "dateRestrict": "d2", # Limit results to items indexed within the last 48 hours
+            "dateRestrict": "d7",  # Set to d7 to ensure Google captures recently indexed listings
             "num": 10
         }
         
@@ -85,7 +96,7 @@ def send_telegram_digest(jobs):
         return
 
     if not jobs:
-        message = "🌅 *Daily Job Briefing*\n\nNo fresh matching roles found in Google Search over the past 48 hours."
+        message = "🌅 *Daily Job Briefing*\n\nNo fresh matching roles found in Google Search over the past 7 days."
     else:
         # Deduplicate results by URL
         seen_links = set()
