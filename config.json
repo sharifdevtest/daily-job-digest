@@ -1,0 +1,24 @@
+{
+  "target_roles": [
+    "IT Delivery Manager",
+    "IT Project Manager",
+    "Engineering Manager",
+    "Technology Delivery Leader",
+    "Senior QA Manager",
+    "QA Delivery Manager",
+    "Test Manager",
+    "Test Architect",
+    "Quality & Delivery Architect",
+    "QA Operations",
+    "Quality Governance Leader",
+    "Lead QA Engineer"
+  ],
+  "locations": ["UAE", "Dubai", "Saudi Arabia", "India", "Remote"],
+  "excluded_keywords": ["Junior", "Intern", "Associate", "Entry Level"],
+  "sources": [
+    {
+      "name": "Google Alerts RSS - IT Delivery Manager UAE",
+      "feed_url": "https://www.google.com/alerts/feeds/YOUR_FEED_ID_HERE"
+    }
+  ]
+}
