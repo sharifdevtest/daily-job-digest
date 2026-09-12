@@ -17,8 +17,12 @@
   "excluded_keywords": ["Junior", "Intern", "Associate", "Entry Level"],
   "sources": [
     {
-      "name": "Google Alerts RSS - IT Delivery Manager UAE",
-      "feed_url": "https://www.google.com/alerts/feeds/YOUR_FEED_ID_HERE"
+      "name": "Target Agencies - Delivery & Leadership",
+      "feed_url": "https://www.google.com/alerts/feeds/13088694795849726719/3981792120129802886"
+    },
+    {
+      "name": "Target Agencies - Quality & Architecture",
+      "feed_url": "https://www.google.com/alerts/feeds/13088694795849726719/4066252513751750060"
     }
   ]
 }
