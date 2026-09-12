@@ -47,7 +47,7 @@ def fetch_live_google_jobs(config):
             "key": api_key,
             "cx": cx,
             "q": query,
-            "dateRestrict": "d7",  # Set to d7 to ensure Google captures recently indexed listings
+            "dateRestrict": "d30",  # Set to d30 to ensure Google captures recently indexed listings
             "num": 10
         }
         
