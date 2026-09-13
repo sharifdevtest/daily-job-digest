@@ -1,70 +1,36 @@
 import os
 import json
 import re
-import html
 import requests
-from bs4 import BeautifulSoup
+
+# Import scraper modules
+from scrapers import michael_page, hays, adecco, randstad, linkedin, charterhouse
+
+# List all active agency scrapers
+SCRAPERS = [
+    michael_page.scrape,
+    hays.scrape,
+    adecco.scrape,
+    randstad.scrape,
+    linkedin.scrape,
+    charterhouse.scrape
+]
 
 def load_config():
     with open("config.json", "r") as f:
         return json.load(f)
 
-def clean_text(text):
-    if not text:
-        return ""
-    clean = re.sub(r'\s+', ' ', text)
-    return html.unescape(clean).strip()
-
-def scrape_michael_page():
-    """Scrapes active job listings from Michael Page Middle East."""
-    jobs = []
-    url = "https://www.michaelpage.ae/jobs"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    
-    try:
-        res = requests.get(url, headers=headers, timeout=15)
-        print(f"[Debug] Michael Page HTTP Status: {res.status_code}")
-        if res.status_code != 200:
-            return jobs
-            
-        soup = BeautifulSoup(res.text, "html.parser")
-        
-        # Target exact HTML card containers used by Michael Page
-        cards = soup.select("li.views-row, article.card, div.job-title")
-        print(f"[Debug] Identified {len(cards)} specific job card containers.")
-        
-        for card in cards:
-            title_elem = card.select_one("h3 a, h2 a, .job-title a, a[href*='/job-detail/']")
-            snippet_elem = card.select_one(".job-summary, .card-body, p")
-            
-            if title_elem:
-                title = clean_text(title_elem.get_text())
-                href = title_elem.get("href", "")
-                
-                if not href.startswith("http"):
-                    href = f"https://www.michaelpage.ae{href}"
-                    
-                snippet = clean_text(snippet_elem.get_text()) if snippet_elem else "View job details on site."
-                
-                if title:
-                    jobs.append({
-                        "title": title,
-                        "link": href,
-                        "snippet": snippet[:180] + "..." if len(snippet) > 180 else snippet,
-                        "source": "Michael Page AE"
-                    })
-    except Exception as e:
-        print(f"[Error] Failed to scrape Michael Page: {e}")
-        
-    return jobs
-
 def filter_jobs(raw_jobs, config):
-    """Filters listings with flexible partial keyword matching."""
+    """Filters listings for strict IT/QA leadership focus."""
     filtered = []
     excluded = [k.lower() for k in config.get("excluded_keywords", [])]
     target_roles = [r.lower() for r in config.get("target_roles", [])]
+    
+    it_domain_triggers = {
+        "it", "qa", "test", "testing", "software", "engineering", 
+        "technology", "data", "cloud", "agile", "infrastructure", 
+        "system", "devops", "architect", "quality", "digital"
+    }
     
     seen_links = set()
     
@@ -73,21 +39,22 @@ def filter_jobs(raw_jobs, config):
             continue
             
         title_lower = job["title"].lower()
-        snippet_lower = job["snippet"].lower()
         
-        # 1. Skip excluded keywords
+        # 1. Reject explicit exclusion keywords
         if any(bad in title_lower for bad in excluded):
             continue
             
-        # 2. Match target role keywords (checks if core terms like 'qa', 'manager', 'lead', 'architect', 'delivery' exist)
-        role_words = set(re.findall(r'\w+', ' '.join(target_roles)))
+        # 2. Require at least ONE IT/Tech domain trigger keyword
         title_words = set(re.findall(r'\w+', title_lower))
-        
-        # Keep job if there's an overlap in key leadership/QA terminology
+        if not it_domain_triggers.intersection(title_words):
+            continue
+            
+        # 3. Require role/seniority keyword match
+        role_words = set(re.findall(r'\w+', ' '.join(target_roles)))
         if role_words.intersection(title_words):
             seen_links.add(job["link"])
             filtered.append(job)
-            print(f"[Match Found] {job['title']}")
+            print(f"[IT Match] {job['title']} ({job['source']})")
             
     return filtered
 
@@ -100,14 +67,15 @@ def send_telegram_digest(jobs):
         return
 
     if not jobs:
-        message = "🌅 *Daily Job Briefing*\n\nNo fresh matching roles found directly on target agency portals today."
+        message = "🌅 *Daily Direct Scraper Briefing*\n\nNo fresh matching IT/QA leadership roles found today."
     else:
-        message = f"🌅 *Live Agency Job Briefing: {len(jobs)} Roles Found*\n\n"
-        for i, job in enumerate(jobs[:8], 1):
+        message = f"🌅 *Live Agency Job Briefing: {len(jobs)} IT/QA Roles Found*\n\n"
+        for i, job in enumerate(jobs[:10], 1):
             clean_title = job['title'].replace('*', '').replace('_', '').replace('[', '').replace(']', '')
             clean_snippet = job['snippet'].replace('*', '').replace('_', '').replace('[', '').replace(']', '')
             
             message += f"*{i}. {clean_title}* ({job['source']})\n"
+            message += f"📅 *Posted:* {job['posted_date']}\n"
             if clean_snippet:
                 message += f"📝 *Details:* {clean_snippet}\n"
             message += f"🔗 [Apply / View Listing]({job['link']})\n\n"
@@ -123,7 +91,7 @@ def send_telegram_digest(jobs):
     try:
         res = requests.post(url, json=payload, timeout=10)
         if res.status_code == 200:
-            print("Telegram message sent successfully!")
+            print("Telegram digest pushed successfully!")
         else:
             print(f"Push failed: {res.status_code} - {res.text}")
     except Exception as e:
@@ -131,12 +99,15 @@ def send_telegram_digest(jobs):
 
 if __name__ == "__main__":
     config = load_config()
-    print("Scraping direct agency portal...")
+    print("Scraping target recruitment agency portals...")
     
-    raw_jobs = scrape_michael_page()
-    print(f"[Debug] Extracted {len(raw_jobs)} total raw job cards from page.")
+    raw_jobs = []
+    for scraper_func in SCRAPERS:
+        raw_jobs.extend(scraper_func())
+    
+    print(f"[Debug] Collected {len(raw_jobs)} total raw jobs across agencies.")
     
     final_jobs = filter_jobs(raw_jobs, config)
-    print(f"Found {len(final_jobs)} matching roles.")
+    print(f"Filtered down to {len(final_jobs)} IT/QA leadership matches.")
     
     send_telegram_digest(final_jobs)
