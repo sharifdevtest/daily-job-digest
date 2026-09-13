@@ -13,12 +13,7 @@ from scrapers import (
     adecco, 
     randstad, 
     linkedin, 
-    charterhouse,
-    korn_ferry,
-    spencer_stuart,
-    sheffield_haworth,
-    heidrick_struggles,
-    page_executive
+    charterhouse
 )
 
 # List all active agency scrapers
@@ -28,13 +23,8 @@ SCRAPERS = [
     adecco.scrape,
     randstad.scrape,
     linkedin.scrape,
-    charterhouse.scrape,
-    korn_ferry.scrape,
-    spencer_stuart.scrape,
-    sheffield_haworth.scrape,
-    heidrick_struggles.scrape,
-    page_executive.scrape
-]
+    charterhouse.scrape
+]   
 
 SEEN_JOBS_FILE = "seen_jobs.json"
 
@@ -68,10 +58,10 @@ def filter_jobs(raw_jobs, config, seen_jobs):
     target_roles = [r.lower() for r in config.get("target_roles", [])]
     
     it_domain_triggers = {
-        "it", "qa", "test", "testing", "software", "engineering", 
-        "technology", "data", "cloud", "agile", "infrastructure", 
-        "system", "devops", "architect", "quality", "digital",
-        "bfsi", "consulting", "gcc"
+    "it", "qa", "test", "testing", "software", "engineering", 
+    "technology", "data", "cloud", "agile", "infrastructure", 
+    "system", "devops", "architect", "quality", "digital",
+    "bfsi", "consulting", "gcc", "director", "head", "vp", "president"
     }
     
     for job in raw_jobs:
