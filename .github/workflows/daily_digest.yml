@@ -21,11 +21,10 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install requests beautifulsoup4 libsql python-dotenv pandas streamlit
 
       - name: Run Job Pipeline
         env:
-          # Notification Secrets
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           EMAIL_SENDER: ${{ secrets.SENDER_EMAIL }}
@@ -33,25 +32,6 @@ jobs:
           EMAIL_RECIPIENT: ${{ secrets.RECIPIENT_EMAIL }}
           SMTP_SERVER: "smtp.gmail.com"
           SMTP_PORT: "587"
-          
-          # Turso Cloud DB Secrets (v2)
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: python main.py
-      - name: Run Job Pipeline
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          EMAIL_SENDER: ${{ secrets.SENDER_EMAIL }}
-          EMAIL_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          EMAIL_RECIPIENT: ${{ secrets.RECIPIENT_EMAIL }}
-          SMTP_SERVER: "smtp.gmail.com"
-          SMTP_PORT: "587"
-        run: python main.py
-
-      - name: Commit and Push State Updates
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add seen_jobs.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update persistent seen_jobs store [skip ci]" && git push)
