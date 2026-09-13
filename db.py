@@ -1,45 +1,42 @@
 import os
-import libsql
 from dotenv import load_dotenv
+import libsql
 
-# Load local environment variables from .env file
 load_dotenv()
 
 def get_db_connection():
-    """Establishes connection to Turso Cloud SQLite DB."""
     url = os.environ.get("TURSO_DATABASE_URL")
     token = os.environ.get("TURSO_AUTH_TOKEN")
-    
-    if not url or not token:
-        raise ValueError("Missing TURSO_DATABASE_URL or TURSO_AUTH_TOKEN environment variables. "
-                         "Check your .env file or GitHub Secrets.")
-        
-    return libsql.connect("jobs_tracker.db", sync_url=url, auth_token=token)
+    return libsql.connect(url, auth_token=token)
 
-def init_db():
-    """Initializes the job_applications table schema."""
+def init_db(force_reset=False):
+    """Initializes the job_applications table. If force_reset=True, drops the table first."""
     conn = get_db_connection()
-    conn.sync()
     cursor = conn.cursor()
+    
+    if force_reset:
+        print("[DB Reset] Dropping existing 'job_applications' table...")
+        cursor.execute("DROP TABLE IF EXISTS job_applications")
+    
+    # Clean, modern v2 schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS job_applications (
             id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            company TEXT NOT NULL,
-            location TEXT NOT NULL,
-            url TEXT NOT NULL,
-            source TEXT NOT NULL,
+            title TEXT,
+            company TEXT,
+            location TEXT,
+            url TEXT,
+            source TEXT,
             status TEXT DEFAULT 'NEW',
-            salary_range TEXT DEFAULT 'Not Specified',
-            hiring_manager TEXT DEFAULT 'Not Found',
-            contact_email TEXT DEFAULT 'N/A',
-            notes TEXT DEFAULT '',
-            discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+            salary_range TEXT,
+            hiring_manager TEXT,
+            contact_email TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
     """)
+    
     conn.commit()
-    conn.sync()
     conn.close()
 
 if __name__ == "__main__":

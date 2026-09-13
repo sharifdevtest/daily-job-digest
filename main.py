@@ -2,8 +2,9 @@ import json
 import os
 import hashlib
 import re
+from datetime import datetime
 from db import get_db_connection, init_db
-from extractors import extract_salary, extract_hiring_manager
+from extractors import extract_salary, extract_hiring_manager, extract_contact_email
 
 # Import active scrapers from scrapers directory
 from scrapers.michael_page import scrape as scrape_michael_page
@@ -67,42 +68,107 @@ def filter_jobs(raw_jobs, config):
     return filtered
 
 
+def get_field_updates(existing_row, extracted_data):
+    """
+    Compares existing DB values with newly scraped values.
+    Returns a dictionary of columns that genuinely need updating.
+    """
+    updates = {}
+    
+    # Rule 1: Only replace if existing DB value is a placeholder AND new value is valid
+    fill_if_empty = {
+        'salary_range': ('Not Specified', None, ''),
+        'hiring_manager': ('Not Found', None, ''),
+        'contact_email': ('N/A', None, ''),
+        'company': ('Agency/Executive Search', 'Not Specified', None, ''),
+        'location': ('GCC / India', 'Not Specified', None, '')
+    }
+    
+    for field, placeholders in fill_if_empty.items():
+        curr_val = existing_row.get(field)
+        new_val = extracted_data.get(field)
+        
+        if curr_val in placeholders and new_val not in placeholders:
+            updates[field] = new_val
+
+    # Rule 2: Always update activity timestamp when re-scraped
+    updates['last_seen_at'] = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        
+    return updates
+
+
 def upsert_to_turso(jobs):
-    """Inserts new filtered jobs into Turso Cloud DB with status = 'NEW'."""
+    """Inserts new jobs or updates missing metadata for existing jobs in Turso Cloud DB."""
     conn = get_db_connection()
-    conn.sync()
     cursor = conn.cursor()
     new_jobs = []
+    updated_count = 0
     
     for job in jobs:
         job_id = hashlib.md5(job['link'].encode('utf-8')).hexdigest()
+        raw_text = f"{job['title']} {job.get('company', '')} {job.get('snippet', '')} {job.get('description', '')}"
         
-        cursor.execute("SELECT id FROM job_applications WHERE id = ?", (job_id,))
-        if not cursor.fetchone():
-            raw_text = f"{job['title']} {job.get('snippet', '')}"
-            salary = extract_salary(raw_text)
-            manager = extract_hiring_manager(raw_text)
-            
+        extracted_data = {
+            'company': job.get('company', 'Agency/Executive Search'),
+            'location': job.get('location', 'GCC / India'),
+            'salary_range': extract_salary(raw_text),
+            'hiring_manager': extract_hiring_manager(raw_text),
+            'contact_email': extract_contact_email(raw_text)
+        }
+        
+        # Check if record already exists
+        cursor.execute("""
+            SELECT company, location, salary_range, hiring_manager, contact_email 
+            FROM job_applications WHERE id = ?
+        """, (job_id,))
+        
+        row = cursor.fetchone()
+        
+        if not row:
+            # 1. Insert new job record
             cursor.execute("""
-                INSERT INTO job_applications (id, title, company, location, url, source, status, salary_range, hiring_manager)
-                VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?)
+                INSERT INTO job_applications 
+                (id, title, company, location, url, source, status, salary_range, hiring_manager, contact_email, created_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             """, (
                 job_id,
                 job['title'],
-                job.get('company', 'Agency/Executive Search'),
-                job.get('location', 'GCC / India'),
+                extracted_data['company'],
+                extracted_data['location'],
                 job['link'],
                 job['source'],
-                salary,
-                manager
+                extracted_data['salary_range'],
+                extracted_data['hiring_manager'],
+                extracted_data['contact_email']
             ))
             new_jobs.append(job)
             
-    conn.commit()
-    conn.sync()
-    conn.close()
-    return new_jobs
+        else:
+            # Map SQL fetch tuple to dictionary keys for comparison
+            existing_row = {
+                'company': row[0],
+                'location': row[1],
+                'salary_range': row[2],
+                'hiring_manager': row[3],
+                'contact_email': row[4]
+            }
+            
+            # Determine which fields require updating
+            updates = get_field_updates(existing_row, extracted_data)
+            
+            if updates:
+                set_clauses = [f"{col} = ?" for col in updates.keys()]
+                params = list(updates.values()) + [job_id]
+                
+                sql_query = f"UPDATE job_applications SET {', '.join(set_clauses)} WHERE id = ?"
+                cursor.execute(sql_query, tuple(params))
+                updated_count += 1
 
+    conn.commit()
+    conn.close()
+    
+    print(f"[Turso DB Sync] Added: {len(new_jobs)} new records | Updated: {updated_count} existing records.")
+    return new_jobs
 
 if __name__ == "__main__":
     init_db()
