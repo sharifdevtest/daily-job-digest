@@ -7,7 +7,19 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # Import scraper modules
-from scrapers import michael_page, hays, adecco, randstad, linkedin, charterhouse
+from scrapers import (
+    michael_page, 
+    hays, 
+    adecco, 
+    randstad, 
+    linkedin, 
+    charterhouse,
+    korn_ferry,
+    spencer_stuart,
+    sheffield_haworth,
+    heidrick_struggles,
+    page_executive
+)
 
 # List all active agency scrapers
 SCRAPERS = [
@@ -16,7 +28,12 @@ SCRAPERS = [
     adecco.scrape,
     randstad.scrape,
     linkedin.scrape,
-    charterhouse.scrape
+    charterhouse.scrape,
+    korn_ferry.scrape,
+    spencer_stuart.scrape,
+    sheffield_haworth.scrape,
+    heidrick_struggles.scrape,
+    page_executive.scrape
 ]
 
 SEEN_JOBS_FILE = "seen_jobs.json"
@@ -53,7 +70,8 @@ def filter_jobs(raw_jobs, config, seen_jobs):
     it_domain_triggers = {
         "it", "qa", "test", "testing", "software", "engineering", 
         "technology", "data", "cloud", "agile", "infrastructure", 
-        "system", "devops", "architect", "quality", "digital"
+        "system", "devops", "architect", "quality", "digital",
+        "bfsi", "consulting", "gcc"
     }
     
     for job in raw_jobs:
@@ -69,7 +87,7 @@ def filter_jobs(raw_jobs, config, seen_jobs):
         if any(bad in title_lower for bad in excluded):
             continue
             
-        # 3. Require at least ONE IT/Tech domain trigger keyword
+        # 3. Require at least ONE IT/Tech/Domain trigger keyword
         title_words = set(re.findall(r'\w+', title_lower))
         if not it_domain_triggers.intersection(title_words):
             continue
@@ -96,7 +114,7 @@ def send_telegram_digest(jobs):
         return
 
     messages = []
-    current_msg = f"🌅 *Live Agency Job Briefing: {len(jobs)} New IT/QA Roles Found*\n\n"
+    current_msg = f"🌅 *Live Agency Job Briefing: {len(jobs)} New Roles Found*\n\n"
     
     for i, job in enumerate(jobs, 1):
         clean_title = job['title'].replace('*', '').replace('_', '').replace('[', '').replace(']', '')
@@ -150,12 +168,11 @@ def send_email_digest(jobs):
         print("No new jobs to report. Skipping Email notification.")
         return
 
-    # Build HTML Body
     html_content = f"""
     <html>
     <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <h2>🌅 Daily Job Briefing: {len(jobs)} New Roles Found</h2>
-        <p>Here are your newly discovered IT/QA leadership listings for today:</p>
+        <h2>🌅 Daily Executive & Tech Job Briefing: {len(jobs)} New Roles Found</h2>
+        <p>Here are your newly discovered IT/QA, BFSI, and GCC leadership listings for today:</p>
         <hr style="border: 0; border-top: 1px solid #ccc;">
     """
 
@@ -177,7 +194,7 @@ def send_email_digest(jobs):
     """
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"🎯 Job Alert: {len(jobs)} New IT/QA Leadership Roles Found"
+    msg["Subject"] = f"🎯 Job Alert: {len(jobs)} New Executive & Tech Roles Found"
     msg["From"] = sender_email
     msg["To"] = recipient_email
     msg.attach(MIMEText(html_content, "html"))
@@ -207,9 +224,8 @@ if __name__ == "__main__":
     print(f"[Debug] Collected {len(raw_jobs)} total raw jobs across agencies.")
     
     final_jobs, updated_seen_jobs = filter_jobs(raw_jobs, config, seen_jobs)
-    print(f"Filtered down to {len(final_jobs)} fresh IT/QA leadership matches.")
+    print(f"Filtered down to {len(final_jobs)} fresh leadership matches.")
     
-    # Trigger notifications across both channels
     send_telegram_digest(final_jobs)
     send_email_digest(final_jobs)
     
