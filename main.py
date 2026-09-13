@@ -1,16 +1,23 @@
+import json
 import os
 import hashlib
 from db import get_db_connection, init_db
 from extractors import extract_salary, extract_hiring_manager
 
-# Import active scrapers and configuration loader from v1 codebase
-from config import load_config
+# Import active scrapers from scrapers directory
 from scrapers.michael_page import scrape as scrape_michael_page
 from scrapers.hays import scrape as scrape_hays
 from scrapers.adecco import scrape as scrape_adecco
 from scrapers.randstad import scrape as scrape_randstad
 from scrapers.charterhouse import scrape as scrape_charterhouse
 from scrapers.linkedin import scrape as scrape_linkedin
+
+def load_config():
+    """Loads configuration directly from config.json."""
+    config_path = os.path.join(os.path.dirname(__file__), "config.json")
+    with open(config_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
 
 def filter_jobs(raw_jobs, config):
     """Filters listings strictly for IT/QA leadership roles[cite: 1]."""
