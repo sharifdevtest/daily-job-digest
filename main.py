@@ -3,89 +3,124 @@ import json
 import re
 import html
 import requests
+from bs4 import BeautifulSoup
 
 def load_config():
     with open("config.json", "r") as f:
         return json.load(f)
 
-def clean_html(raw_html):
-    """Strips HTML tags and unescapes entities from API snippets."""
-    clean_text = re.sub(r'<[^>]+>', '', raw_html)
-    return html.unescape(clean_text).strip()
+def clean_text(text):
+    if not text:
+        return ""
+    clean = re.sub(r'\s+', ' ', text)
+    return html.unescape(clean).strip()
 
-def build_search_queries(target_roles, chunk_size=4):
-    """Dynamically builds Google OR queries from the target_roles list in config.json."""
-    queries = []
-    # Quote each role for exact/clean match, then group them in chunks
-    for i in range(0, len(target_roles), chunk_size):
-        chunk = target_roles[i:i + chunk_size]
-        query_str = " OR ".join([f'"{role}"' for role in chunk])
-        queries.append(query_str)
-    return queries
-
-def fetch_live_google_jobs(config):
-    api_key = os.environ.get("GOOGLE_API_KEY")
-    cx = os.environ.get("GOOGLE_CX")
+def scrape_michael_page(target_roles, locations):
+    """Direct scraper for Michael Page Middle East job listings."""
+    jobs = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     
-    if not api_key or not cx:
-        print("Error: Missing GOOGLE_API_KEY or GOOGLE_CX secret.")
-        return []
-
-    matched_jobs = []
-    
-    # Dynamically generate queries from config.json
-    target_roles = config.get("target_roles", [])
-    if not target_roles:
-        print("Warning: No target_roles found in config.json")
-        return []
-        
-    search_queries = build_search_queries(target_roles, chunk_size=4)
-    url = "https://www.googleapis.com/customsearch/v1"
-
-    for query in search_queries:
-        params = {
-            "key": api_key,
-            "cx": cx,
-            "q": query,
-            "dateRestrict": "d365",  # Set to d365 to ensure Google captures recently indexed listings
-            "num": 10
-        }
-        
+    # Run targeted queries for primary role categories
+    for role in target_roles[:4]:  # Prioritize top leadership/QA roles to manage execution time
+        url = f"https://www.michaelpage.ae/jobs/{role.replace(' ', '-').lower()}"
         try:
-            res = requests.get(url, params=params, timeout=10)
+            res = requests.get(url, headers=headers, timeout=10)
             if res.status_code != 200:
-                print(f"API Error ({res.status_code}): {res.text}")
                 continue
                 
-            data = res.json()
-            items = data.get("items", [])
+            soup = BeautifulSoup(res.text, "html.parser")
+            articles = soup.find_all("article", class_=re.compile(r'job-card|card'))
             
-            for item in items:
-                title = clean_html(item.get("title", ""))
-                link = item.get("link", "")
-                snippet = clean_html(item.get("snippet", ""))
+            for article in articles:
+                title_elem = article.find(["h3", "h2", "a"], class_=re.compile(r'title|heading'))
+                link_elem = article.find("a", href=True)
+                snippet_elem = article.find(["p", "div"], class_=re.compile(r'summary|description|text'))
                 
-                # Exclude unwanted roles
-                if any(bad.lower() in title.lower() or bad.lower() in snippet.lower() for bad in config.get("excluded_keywords", [])):
-                    continue
-                
-                # Basic location detection from snippet, title, or link text
-                detected_loc = "Not Specified"
-                for loc in config.get("locations", []):
-                    if loc.lower() in title.lower() or loc.lower() in snippet.lower() or loc.lower() in link.lower():
-                        detected_loc = loc
-                        break
-
-                matched_jobs.append({
-                    "title": title,
-                    "link": link,
-                    "snippet": snippet[:180] + "..." if len(snippet) > 180 else snippet,
-                    "location": detected_loc
-                })
+                if title_elem and link_elem:
+                    title = clean_text(title_elem.get_text())
+                    link = link_elem["href"]
+                    if not link.startswith("http"):
+                        link = f"https://www.michaelpage.ae{link}"
+                        
+                    snippet = clean_text(snippet_elem.get_text()) if snippet_elem else "No description preview available."
+                    
+                    jobs.append({
+                        "title": title,
+                        "link": link,
+                        "snippet": snippet[:180] + "..." if len(snippet) > 180 else snippet,
+                        "source": "Michael Page AE"
+                    })
         except Exception as e:
-            print(f"Failed to fetch search results: {e}")
+            print(f"Error scraping Michael Page for {role}: {e}")
             
-    return matched_jobs
+    return jobs
+
+def scrape_hays(target_roles):
+    """Direct scraper for Hays Middle East job search."""
+    jobs = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    for role in target_roles[:4]:
+        url = f"https://www.hays.ae/jobs?q={requests.utils.quote(role)}"
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            if res.status_code != 200:
+                continue
+                
+            soup = BeautifulSoup(res.text, "html.parser")
+            job_cards = soup.find_all("div", class_=re.compile(r'job-card|result-card|search-result'))
+            
+            for card in job_cards:
+                title_elem = card.find(["h3", "a"], class_=re.compile(r'title'))
+                link_elem = card.find("a", href=True)
+                snippet_elem = card.find(["p", "span"], class_=re.compile(r'snippet|desc'))
+                
+                if title_elem and link_elem:
+                    title = clean_text(title_elem.get_text())
+                    link = link_elem["href"]
+                    if not link.startswith("http"):
+                        link = f"https://www.hays.ae{link}"
+                        
+                    snippet = clean_text(snippet_elem.get_text()) if snippet_elem else "No description preview available."
+                    
+                    jobs.append({
+                        "title": title,
+                        "link": link,
+                        "snippet": snippet[:180] + "..." if len(snippet) > 180 else snippet,
+                        "source": "Hays AE"
+                    })
+        except Exception as e:
+            print(f"Error scraping Hays for {role}: {e}")
+            
+    return jobs
+
+def filter_jobs(raw_jobs, config):
+    """Filters listings against locations and excluded keywords from config.json."""
+    filtered = []
+    excluded = [k.lower() for k in config.get("excluded_keywords", [])]
+    locations = [l.lower() for l in config.get("locations", [])]
+    
+    seen_links = set()
+    
+    for job in raw_jobs:
+        if job["link"] in seen_links:
+            continue
+            
+        title_lower = job["title"].lower()
+        snippet_lower = job["snippet"].lower()
+        
+        # Check excluded keywords
+        if any(bad in title_lower or bad in snippet_lower for bad in excluded):
+            continue
+            
+        seen_links.add(job["link"])
+        filtered.append(job)
+        
+    return filtered
 
 def send_telegram_digest(jobs):
     bot_token = os.environ.get("TELEGRAM_TOKEN")
@@ -96,18 +131,10 @@ def send_telegram_digest(jobs):
         return
 
     if not jobs:
-        message = "🌅 *Daily Job Briefing*\n\nNo fresh matching roles found in Google Search over the past 7 days."
+        message = "🌅 *Daily Direct Scraper Briefing*\n\nNo fresh matching roles found directly on target agency sites today."
     else:
-        # Deduplicate results by URL
-        seen_links = set()
-        unique_jobs = []
-        for j in jobs:
-            if j['link'] not in seen_links:
-                seen_links.add(j['link'])
-                unique_jobs.append(j)
-
-        message = f"🌅 *Live Search Job Briefing: {len(unique_jobs)} Roles Found*\n\n"
-        for i, job in enumerate(unique_jobs[:8], 1): # Top 8 listings
+        message = f"🌅 *Live Agency Job Briefing: {len(jobs)} Roles Found*\n\n"
+        for i, job in enumerate(jobs[:8], 1):  # Top 8 listings
             clean_title = (
                 job['title']
                 .replace('*', '')
@@ -123,8 +150,7 @@ def send_telegram_digest(jobs):
                 .replace(']', '')
             )
             
-            message += f"*{i}. {clean_title}*\n"
-            message += f"📍 *Location:* {job['location']}\n"
+            message += f"*{i}. {clean_title}* ({job['source']})\n"
             if clean_snippet:
                 message += f"📝 *Details:* {clean_snippet}\n"
             message += f"🔗 [Apply / View Listing]({job['link']})\n\n"
@@ -148,5 +174,15 @@ def send_telegram_digest(jobs):
 
 if __name__ == "__main__":
     config = load_config()
-    jobs = fetch_live_google_jobs(config)
-    send_telegram_digest(jobs)
+    target_roles = config.get("target_roles", [])
+    locations = config.get("locations", [])
+    
+    print("Scraping direct agency sites...")
+    raw_jobs = []
+    raw_jobs.extend(scrape_michael_page(target_roles, locations))
+    raw_jobs.extend(scrape_hays(target_roles))
+    
+    final_jobs = filter_jobs(raw_jobs, config)
+    print(f"Found {len(final_jobs)} matching roles.")
+    
+    send_telegram_digest(final_jobs)
