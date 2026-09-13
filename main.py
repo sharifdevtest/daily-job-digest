@@ -15,57 +15,57 @@ def clean_text(text):
     clean = re.sub(r'\s+', ' ', text)
     return html.unescape(clean).strip()
 
-def scrape_michael_page_regional(target_roles, config_locations):
-    """Scrapes Michael Page UAE active job listings."""
+def scrape_michael_page():
+    """Scrapes active job listings from Michael Page Middle East."""
     jobs = []
+    url = "https://www.michaelpage.ae/jobs"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
     
-    # Direct regional listings endpoint (Server-side rendered)
-    url = "https://www.michaelpage.ae/jobs/united-arab-emirates"
-    
     try:
         res = requests.get(url, headers=headers, timeout=15)
         print(f"[Debug] Michael Page HTTP Status: {res.status_code}")
+        if res.status_code != 200:
+            return jobs
+            
+        soup = BeautifulSoup(res.text, "html.parser")
         
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, "html.parser")
-            # Find all job cards/items on page 1
-            cards = soup.find_all(["li", "article", "div"], class_=re.compile(r'views-row|job|card|search-result', re.I))
-            print(f"[Debug] Found {len(cards)} potential job containers on page.")
+        # Target exact HTML card containers used by Michael Page
+        cards = soup.select("li.views-row, article.card, div.job-title")
+        print(f"[Debug] Identified {len(cards)} specific job card containers.")
+        
+        for card in cards:
+            title_elem = card.select_one("h3 a, h2 a, .job-title a, a[href*='/job-detail/']")
+            snippet_elem = card.select_one(".job-summary, .card-body, p")
             
-            for card in cards:
-                title_elem = card.find(["h3", "h2", "a"], class_=re.compile(r'title|heading', re.I))
-                link_elem = card.find("a", href=True)
-                snippet_elem = card.find(["p", "div", "span"], class_=re.compile(r'summary|desc|text|snippet', re.I))
+            if title_elem:
+                title = clean_text(title_elem.get_text())
+                href = title_elem.get("href", "")
                 
-                if title_elem and link_elem:
-                    title = clean_text(title_elem.get_text())
-                    link = link_elem["href"]
-                    if not link.startswith("http"):
-                        link = f"https://www.michaelpage.ae{link}"
-                        
-                    snippet = clean_text(snippet_elem.get_text()) if snippet_elem else "Active regional listing."
+                if not href.startswith("http"):
+                    href = f"https://www.michaelpage.ae{href}"
                     
-                    # Match against target roles loosely
-                    title_lower = title.lower()
-                    if any(role.lower() in title_lower for role in target_roles) or len(target_roles) == 0:
-                        jobs.append({
-                            "title": title,
-                            "link": link,
-                            "snippet": snippet[:180] + "..." if len(snippet) > 180 else snippet,
-                            "source": "Michael Page AE"
-                        })
+                snippet = clean_text(snippet_elem.get_text()) if snippet_elem else "View job details on site."
+                
+                if title:
+                    jobs.append({
+                        "title": title,
+                        "link": href,
+                        "snippet": snippet[:180] + "..." if len(snippet) > 180 else snippet,
+                        "source": "Michael Page AE"
+                    })
     except Exception as e:
-        print(f"Error scraping Michael Page: {e}")
-            
+        print(f"[Error] Failed to scrape Michael Page: {e}")
+        
     return jobs
 
 def filter_jobs(raw_jobs, config):
-    """Filters listings against excluded keywords."""
+    """Filters listings with flexible partial keyword matching."""
     filtered = []
     excluded = [k.lower() for k in config.get("excluded_keywords", [])]
+    target_roles = [r.lower() for r in config.get("target_roles", [])]
+    
     seen_links = set()
     
     for job in raw_jobs:
@@ -75,13 +75,20 @@ def filter_jobs(raw_jobs, config):
         title_lower = job["title"].lower()
         snippet_lower = job["snippet"].lower()
         
-        # Check excluded keywords (Junior, Intern, etc.)
-        if any(bad in title_lower or bad in snippet_lower for bad in excluded):
+        # 1. Skip excluded keywords
+        if any(bad in title_lower for bad in excluded):
             continue
             
-        seen_links.add(job["link"])
-        filtered.append(job)
+        # 2. Match target role keywords (checks if core terms like 'qa', 'manager', 'lead', 'architect', 'delivery' exist)
+        role_words = set(re.findall(r'\w+', ' '.join(target_roles)))
+        title_words = set(re.findall(r'\w+', title_lower))
         
+        # Keep job if there's an overlap in key leadership/QA terminology
+        if role_words.intersection(title_words):
+            seen_links.add(job["link"])
+            filtered.append(job)
+            print(f"[Match Found] {job['title']}")
+            
     return filtered
 
 def send_telegram_digest(jobs):
@@ -93,7 +100,7 @@ def send_telegram_digest(jobs):
         return
 
     if not jobs:
-        message = "🌅 *Daily Job Briefing*\n\nNo active matching roles found on agency boards today."
+        message = "🌅 *Daily Job Briefing*\n\nNo fresh matching roles found directly on target agency portals today."
     else:
         message = f"🌅 *Live Agency Job Briefing: {len(jobs)} Roles Found*\n\n"
         for i, job in enumerate(jobs[:8], 1):
@@ -118,23 +125,17 @@ def send_telegram_digest(jobs):
         if res.status_code == 200:
             print("Telegram message sent successfully!")
         else:
-            print(f"Telegram push failed: {res.status_code} - {res.text}")
+            print(f"Push failed: {res.status_code} - {res.text}")
     except Exception as e:
         print(f"Network error: {e}")
 
 if __name__ == "__main__":
     config = load_config()
-    target_roles = config.get("target_roles", [])
-    locations = config.get("locations", [])
-    
     print("Scraping direct agency portal...")
-    raw_jobs = scrape_michael_page_regional(target_roles, locations)
     
-    # If no strict role matches, return all active management/tech roles for verification
-    if not raw_jobs:
-        print("[Fallback] No exact title matches for target_roles. Fetching all active regional listings...")
-        raw_jobs = scrape_michael_page_regional([], locations)
-        
+    raw_jobs = scrape_michael_page()
+    print(f"[Debug] Extracted {len(raw_jobs)} total raw job cards from page.")
+    
     final_jobs = filter_jobs(raw_jobs, config)
     print(f"Found {len(final_jobs)} matching roles.")
     
