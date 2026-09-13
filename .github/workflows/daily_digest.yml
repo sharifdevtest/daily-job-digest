@@ -2,7 +2,8 @@ name: Job Search Notification Pipeline
 
 on:
   schedule:
-    - cron: '0 6 * * *' # Executes daily at 06:00 UTC
+    # 02:15 UTC = 07:45 AM IST. Accounts for GitHub delays + runtime.
+    - cron: '15 2 * * *'
   workflow_dispatch:
 
 permissions:
