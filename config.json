@@ -13,6 +13,15 @@
     "Quality Governance Leader",
     "Lead QA Engineer"
   ],
-  "locations": ["UAE", "Dubai", "Saudi Arabia", "India", "Remote"],
-  "excluded_keywords": ["Junior", "Intern", "Associate", "Entry Level"]
+  "leadership_keywords": [
+    "head", "director", "vp", "vice president", "manager", 
+    "lead", "leader", "chief", "principal", "architect", "headhunter"
+  ],
+  "domain_triggers": [
+    "qa", "quality", "test", "testing", "software", 
+    "engineering", "it", "technology", "devops", "cloud", "agile"
+  ],
+  "excluded_keywords": [
+    "junior", "intern", "associate", "entry level", "trainee"
+  ]
 }

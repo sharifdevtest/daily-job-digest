@@ -1,6 +1,7 @@
 import json
 import os
 import hashlib
+import re
 from db import get_db_connection, init_db
 from extractors import extract_salary, extract_hiring_manager
 
@@ -20,25 +21,51 @@ def load_config():
 
 
 def filter_jobs(raw_jobs, config):
-    """Filters listings strictly for IT/QA leadership roles[cite: 1]."""
+    """
+    100% Dynamic job filter reading all criteria directly from config.json.
+    Requires: (Exact Match OR (Leadership Token AND Domain Token)) AND NOT Excluded
+    """
     filtered = []
-    excluded = [k.lower() for k in config.get("excluded_keywords", [])]
-    target_roles = [r.lower() for r in config.get("target_roles", [])]
     
+    # Read lists dynamically from config.json
+    excluded = [k.lower().strip() for k in config.get("excluded_keywords", [])]
+    target_roles = [r.lower().strip() for r in config.get("target_roles", [])]
+    domain_keywords = [d.lower().strip() for d in config.get("domain_triggers", [])]
+    leadership_keywords = [l.lower().strip() for l in config.get("leadership_keywords", [])]
+    
+    # Token sets derived directly from config
+    leadership_tokens = set(leadership_keywords)
+    domain_tokens = set(domain_keywords)
+
     seen_links = set()
     for job in raw_jobs:
-        if job["link"] in seen_links:
+        link = job.get("link", "")
+        if not link or link in seen_links:
             continue
             
-        title_lower = job["title"].lower()
+        title_lower = job.get("title", "").lower()
+        title_words = set(re.findall(r'\w+', title_lower))
+        
+        # Rule 1: Exclude unwanted roles
         if any(bad in title_lower for bad in excluded):
             continue
             
-        if any(role in title_lower for role in target_roles):
-            seen_links.add(job["link"])
+        # Rule 2: Check for exact target role substring match
+        matched = any(role in title_lower for role in target_roles)
+        
+        # Rule 3: Dynamic 2-Way Match (Must have 1 Leadership Token AND 1 Domain Token)
+        if not matched:
+            has_leadership = bool(leadership_tokens.intersection(title_words))
+            has_domain = bool(domain_tokens.intersection(title_words))
+            if has_leadership and has_domain:
+                matched = True
+                
+        if matched:
+            seen_links.add(link)
             filtered.append(job)
             
     return filtered
+
 
 def upsert_to_turso(jobs):
     """Inserts new filtered jobs into Turso Cloud DB with status = 'NEW'."""
@@ -76,19 +103,31 @@ def upsert_to_turso(jobs):
     conn.close()
     return new_jobs
 
+
 if __name__ == "__main__":
     init_db()
     config = load_config()
     
+    scrapers = [
+        ("Michael Page", scrape_michael_page),
+        ("Hays", scrape_hays),
+        ("Adecco", scrape_adecco),
+        ("Randstad", scrape_randstad),
+        ("Charterhouse", scrape_charterhouse),
+        ("LinkedIn", scrape_linkedin),
+    ]
+    
     raw_jobs = []
-    raw_jobs.extend(scrape_michael_page())
-    raw_jobs.extend(scrape_hays())
-    raw_jobs.extend(scrape_adecco())
-    raw_jobs.extend(scrape_randstad())
-    raw_jobs.extend(scrape_charterhouse())
-    raw_jobs.extend(scrape_linkedin())
-    
+    for name, scraper_func in scrapers:
+        try:
+            jobs = scraper_func()
+            print(f"[{name}] Extracted {len(jobs)} raw jobs.")
+            raw_jobs.extend(jobs)
+        except Exception as e:
+            print(f"[{name}] Scraper failed: {e}")
+
     filtered_jobs = filter_jobs(raw_jobs, config)
-    new_matched_jobs = upsert_to_turso(filtered_jobs)
+    print(f"Total raw: {len(raw_jobs)} | Passed filter: {len(filtered_jobs)}")
     
-    print(f"Processed {len(raw_jobs)} total. Saved {len(new_matched_jobs)} new IT/QA matches to Turso.")
+    new_matched_jobs = upsert_to_turso(filtered_jobs)
+    print(f"Newly added to Turso: {len(new_matched_jobs)}")
