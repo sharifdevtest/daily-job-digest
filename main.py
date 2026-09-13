@@ -1,222 +1,87 @@
 import os
-import json
-import re
-import requests
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import hashlib
+from db import get_db_connection, init_db
+from extractors import extract_salary, extract_hiring_manager
 
-# Import scraper modules
-from scrapers import (
-    michael_page, 
-    hays, 
-    adecco, 
-    randstad, 
-    linkedin, 
-    charterhouse
-)
+# Import active scrapers and configuration loader from v1 codebase
+from config import load_config
+from scrapers.michael_page import scrape as scrape_michael_page
+from scrapers.hays import scrape as scrape_hays
+from scrapers.adecco import scrape as scrape_adecco
+from scrapers.randstad import scrape as scrape_randstad
+from scrapers.charterhouse import scrape as scrape_charterhouse
+from scrapers.linkedin import scrape as scrape_linkedin
 
-# List all active agency scrapers
-SCRAPERS = [
-    michael_page.scrape,
-    hays.scrape,
-    adecco.scrape,
-    randstad.scrape,
-    linkedin.scrape,
-    charterhouse.scrape
-]   
-
-SEEN_JOBS_FILE = "seen_jobs.json"
-
-def load_config():
-    with open("config.json", "r") as f:
-        return json.load(f)
-
-def load_seen_jobs():
-    """Loads previously alerted job URLs from persistent storage."""
-    if os.path.exists(SEEN_JOBS_FILE):
-        try:
-            with open(SEEN_JOBS_FILE, "r") as f:
-                return set(json.load(f))
-        except Exception as e:
-            print(f"[Warning] Failed to load seen_jobs.json: {e}")
-    return set()
-
-def save_seen_jobs(seen_jobs):
-    """Saves updated set of reported job URLs back to disk."""
-    try:
-        with open(SEEN_JOBS_FILE, "w") as f:
-            json.dump(list(seen_jobs), f, indent=2)
-        print(f"[Storage] Successfully updated {SEEN_JOBS_FILE} with {len(seen_jobs)} records.")
-    except Exception as e:
-        print(f"[Error] Failed to save seen_jobs.json: {e}")
-
-def filter_jobs(raw_jobs, config, seen_jobs):
-    """Filters listings for strict IT/QA leadership focus and excludes previously reported jobs."""
+def filter_jobs(raw_jobs, config):
+    """Filters listings strictly for IT/QA leadership roles[cite: 1]."""
     filtered = []
     excluded = [k.lower() for k in config.get("excluded_keywords", [])]
     target_roles = [r.lower() for r in config.get("target_roles", [])]
     
-    it_domain_triggers = {
-    "it", "qa", "test", "testing", "software", "engineering", 
-    "technology", "data", "cloud", "agile", "infrastructure", 
-    "system", "devops", "architect", "quality", "digital",
-    "bfsi", "consulting", "gcc", "director", "head", "vp", "president"
-    }
-    
+    seen_links = set()
     for job in raw_jobs:
-        link = job["link"]
-        
-        # 1. Skip if already sent in a previous run
-        if link in seen_jobs:
+        if job["link"] in seen_links:
             continue
             
         title_lower = job["title"].lower()
-        
-        # 2. Reject explicit exclusion keywords
         if any(bad in title_lower for bad in excluded):
             continue
             
-        # 3. Require at least ONE IT/Tech/Domain trigger keyword
-        title_words = set(re.findall(r'\w+', title_lower))
-        if not it_domain_triggers.intersection(title_words):
-            continue
-            
-        # 4. Require role/seniority keyword match
-        role_words = set(re.findall(r'\w+', ' '.join(target_roles)))
-        if role_words.intersection(title_words):
-            seen_jobs.add(link)
+        if any(role in title_lower for role in target_roles):
+            seen_links.add(job["link"])
             filtered.append(job)
-            print(f"[New IT Match] {job['title']} ({job['source']})")
             
-    return filtered, seen_jobs
+    return filtered
 
-def send_telegram_digest(jobs):
-    bot_token = os.environ.get("TELEGRAM_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+def upsert_to_turso(jobs):
+    """Inserts new filtered jobs into Turso Cloud DB with status = 'NEW'."""
+    conn = get_db_connection()
+    conn.sync()
+    cursor = conn.cursor()
+    new_jobs = []
     
-    if not bot_token or not chat_id:
-        print("Error: Missing Telegram secrets.")
-        return
-
-    if not jobs:
-        print("No new jobs to report today. Skipping Telegram notification.")
-        return
-
-    messages = []
-    current_msg = f"🌅 *Live Agency Job Briefing: {len(jobs)} New Roles Found*\n\n"
-    
-    for i, job in enumerate(jobs, 1):
-        clean_title = job['title'].replace('*', '').replace('_', '').replace('[', '').replace(']', '')
-        clean_snippet = job['snippet'].replace('*', '').replace('_', '').replace('[', '').replace(']', '')
+    for job in jobs:
+        job_id = hashlib.md5(job['link'].encode('utf-8')).hexdigest()
         
-        entry = f"*{i}. {clean_title}* ({job['source']})\n"
-        entry += f"📅 *Posted:* {job['posted_date']}\n"
-        if clean_snippet:
-            entry += f"📝 *Details:* {clean_snippet}\n"
-        entry += f"🔗 [Apply / View Listing]({job['link']})\n\n"
-        
-        if len(current_msg) + len(entry) > 3800:
-            messages.append(current_msg)
-            current_msg = entry
-        else:
-            current_msg += entry
+        cursor.execute("SELECT id FROM job_applications WHERE id = ?", (job_id,))
+        if not cursor.fetchone():
+            raw_text = f"{job['title']} {job.get('snippet', '')}"
+            salary = extract_salary(raw_text)
+            manager = extract_hiring_manager(raw_text)
             
-    if current_msg:
-        messages.append(current_msg)
-
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    for idx, msg in enumerate(messages):
-        payload = {
-            "chat_id": chat_id,
-            "text": msg,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        }
-        
-        try:
-            res = requests.post(url, json=payload, timeout=10)
-            if res.status_code == 200:
-                print(f"Telegram chunk {idx+1}/{len(messages)} pushed successfully!")
-            else:
-                print(f"Push failed: {res.status_code} - {res.text}")
-        except Exception as e:
-            print(f"Network error: {e}")
-
-def send_email_digest(jobs):
-    sender_email = os.environ.get("EMAIL_SENDER")
-    sender_password = os.environ.get("EMAIL_PASSWORD")
-    recipient_email = os.environ.get("EMAIL_RECIPIENT")
-    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", 587))
-
-    if not sender_email or not sender_password or not recipient_email:
-        print("[Email Warning] Email credentials missing. Skipping email notification.")
-        return
-
-    if not jobs:
-        print("No new jobs to report. Skipping Email notification.")
-        return
-
-    html_content = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <h2>🌅 Daily Executive & Tech Job Briefing: {len(jobs)} New Roles Found</h2>
-        <p>Here are your newly discovered IT/QA, BFSI, and GCC leadership listings for today:</p>
-        <hr style="border: 0; border-top: 1px solid #ccc;">
-    """
-
-    for i, job in enumerate(jobs, 1):
-        html_content += f"""
-        <div style="margin-bottom: 20px; padding: 10px; border-left: 4px solid #007bff; background-color: #f8f9fa;">
-            <h3 style="margin: 0 0 5px 0;">{i}. <a href="{job['link']}" style="color: #007bff; text-decoration: none;">{job['title']}</a></h3>
-            <p style="margin: 2px 0; font-size: 0.9em; color: #555;"><strong>Source:</strong> {job['source']} | <strong>Posted:</strong> {job['posted_date']}</p>
-            <p style="margin: 5px 0;">{job['snippet']}</p>
-            <a href="{job['link']}" style="display: inline-block; padding: 6px 12px; background-color: #28a745; color: white; text-decoration: none; border-radius: 4px; font-size: 0.85em;">View & Apply Listing</a>
-        </div>
-        """
-
-    html_content += """
-        <hr style="border: 0; border-top: 1px solid #ccc;">
-        <p style="font-size: 0.8em; color: #777;">Automated alert generated by your Job Search Scraper Pipeline.</p>
-    </body>
-    </html>
-    """
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"🎯 Job Alert: {len(jobs)} New Executive & Tech Roles Found"
-    msg["From"] = sender_email
-    msg["To"] = recipient_email
-    msg.attach(MIMEText(html_content, "html"))
-
-    try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
-        server.login(sender_email, sender_password)
-        server.sendmail(sender_email, recipient_email, msg.as_string())
-        server.quit()
-        print("Email digest sent successfully!")
-    except Exception as e:
-        print(f"[Email Error] Failed to send email: {e}")
+            cursor.execute("""
+                INSERT INTO job_applications (id, title, company, location, url, source, status, salary_range, hiring_manager)
+                VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?)
+            """, (
+                job_id,
+                job['title'],
+                job.get('company', 'Agency/Executive Search'),
+                job.get('location', 'GCC / India'),
+                job['link'],
+                job['source'],
+                salary,
+                manager
+            ))
+            new_jobs.append(job)
+            
+    conn.commit()
+    conn.sync()
+    conn.close()
+    return new_jobs
 
 if __name__ == "__main__":
+    init_db()
     config = load_config()
-    seen_jobs = load_seen_jobs()
     
-    print("Scraping target recruitment agency portals...")
     raw_jobs = []
-    for scraper_func in SCRAPERS:
-        try:
-            raw_jobs.extend(scraper_func())
-        except Exception as e:
-            print(f"[Error] Execution failed for standard scraper function: {e}")
+    raw_jobs.extend(scrape_michael_page())
+    raw_jobs.extend(scrape_hays())
+    raw_jobs.extend(scrape_adecco())
+    raw_jobs.extend(scrape_randstad())
+    raw_jobs.extend(scrape_charterhouse())
+    raw_jobs.extend(scrape_linkedin())
     
-    print(f"[Debug] Collected {len(raw_jobs)} total raw jobs across agencies.")
+    filtered_jobs = filter_jobs(raw_jobs, config)
+    new_matched_jobs = upsert_to_turso(filtered_jobs)
     
-    final_jobs, updated_seen_jobs = filter_jobs(raw_jobs, config, seen_jobs)
-    print(f"Filtered down to {len(final_jobs)} fresh leadership matches.")
-    
-    send_telegram_digest(final_jobs)
-    send_email_digest(final_jobs)
-    
-    save_seen_jobs(updated_seen_jobs)
+    print(f"Processed {len(raw_jobs)} total. Saved {len(new_matched_jobs)} new IT/QA matches to Turso.")
