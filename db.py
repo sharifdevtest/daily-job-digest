@@ -31,7 +31,9 @@ def init_db(force_reset=False):
             salary_range TEXT,
             hiring_manager TEXT,
             contact_email TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            notes TEXT,
+            discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)

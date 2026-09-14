@@ -1,17 +1,57 @@
 import streamlit as st
 import pandas as pd
+import os
 from dotenv import load_dotenv
 from db import get_db_connection
 
 # Load local environment variables from .env
 load_dotenv()
 
+# --- PASSWORD AUTHENTICATION GATEWAY ---
+def check_password():
+    """Returns True if the user has entered correct username and password."""
+    def credentials_entered():
+        correct_username = os.environ.get("APP_USERNAME")
+        correct_password = os.environ.get("APP_PASSWORD")
+        
+        if not correct_username or not correct_password:
+            st.error("Setup Error: Credentials are not set in the .env environment!")
+            return
+
+        if (st.session_state["username"] == correct_username and 
+            st.session_state["password"] == correct_password):
+            st.session_state["password_correct"] = True
+            # Clean up credentials
+            del st.session_state["username"]
+            del st.session_state["password"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # Show both Username and Password fields
+        st.text_input("Username", key="username")
+        st.text_input("Password", type="password", key="password")
+        st.button("Log In", on_click=credentials_entered)
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("Username", key="username")
+        st.text_input("Password", type="password", key="password")
+        st.button("Log In", on_click=credentials_entered)
+        st.error("😕 Username or Password incorrect.")
+        return False
+    else:
+        return True
+
+# If the password check fails, halt execution here and do not load the rest of the application
+if not check_password():
+    st.stop()
+
+# Remaining application configuration runs only if authentication succeeds
 st.set_page_config(page_title="Executive QA/IT Job Tracker", layout="wide")
 st.title("💼 Senior IT & QA Leadership Application Tracker")
 
 def load_data():
     conn = get_db_connection()
-    conn.sync()
     df = pd.read_sql_query("SELECT * FROM job_applications ORDER BY discovered_at DESC", conn)
     conn.close()
     return df
@@ -25,7 +65,6 @@ def update_job_details(job_id, status, salary, manager, notes):
         WHERE id = ?
     """, (status, salary, manager, notes, job_id))
     conn.commit()
-    conn.sync()
     conn.close()
 
 # Main Board View
