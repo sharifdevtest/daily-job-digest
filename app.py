@@ -38,6 +38,7 @@ if not check_password():
 st.set_page_config(page_title="Executive Job Tracker", layout="wide")
 st.title("💼 Executive IT & QA Job Tracker")
 
+@st.cache_data(ttl=600)
 def load_data():
     conn = get_db_connection()
     df = pd.read_sql_query("SELECT * FROM job_applications ORDER BY discovered_at DESC", conn)
@@ -75,6 +76,11 @@ def update_db(edited_df):
         ))
     conn.commit()
     conn.close()
+    st.cache_data.clear()
+
+if st.button("Refresh Data"):
+    st.cache_data.clear()
+    st.rerun()
 
 data = load_data()
 statuses = ["NEW", "IN_PROGRESS", "APPLIED", "CLOSED", "TO_REVIEW"]
