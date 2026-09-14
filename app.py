@@ -1,54 +1,42 @@
 import streamlit as st
 import pandas as pd
 import os
+import getpass
 from dotenv import load_dotenv
 from db import get_db_connection
 
-# Load local environment variables from .env
 load_dotenv()
 
 # --- PASSWORD AUTHENTICATION GATEWAY ---
 def check_password():
-    """Returns True if the user has entered correct username and password."""
-    def credentials_entered():
-        correct_username = os.environ.get("APP_USERNAME")
+    def password_entered():
         correct_password = os.environ.get("APP_PASSWORD")
-        
-        if not correct_username or not correct_password:
-            st.error("Setup Error: Credentials are not set in the .env environment!")
+        if not correct_password:
+            st.error("Setup Error: APP_PASSWORD is not set!")
             return
-
-        if (st.session_state["username"] == correct_username and 
-            st.session_state["password"] == correct_password):
+        if st.session_state["password"] == correct_password:
             st.session_state["password_correct"] = True
-            # Clean up credentials
-            del st.session_state["username"]
             del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # Show both Username and Password fields
-        st.text_input("Username", key="username")
-        st.text_input("Password", type="password", key="password")
-        st.button("Log In", on_click=credentials_entered)
+        session_user = getpass.getuser()
+        st.info(f"👤 Active System Session User: **{session_user}**")
+        st.text_input("Enter Portal Password", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        st.text_input("Username", key="username")
-        st.text_input("Password", type="password", key="password")
-        st.button("Log In", on_click=credentials_entered)
-        st.error("😕 Username or Password incorrect.")
+        st.text_input("Enter Portal Password", type="password", on_change=password_entered, key="password")
+        st.error("😕 Access Denied.")
         return False
-    else:
-        return True
+    return True
 
-# If the password check fails, halt execution here and do not load the rest of the application
 if not check_password():
     st.stop()
 
-# Remaining application configuration runs only if authentication succeeds
-st.set_page_config(page_title="Executive QA/IT Job Tracker", layout="wide")
-st.title("💼 Senior IT & QA Leadership Application Tracker")
+# --- MAIN APP ---
+st.set_page_config(page_title="Executive Job Tracker", layout="wide")
+st.title("💼 Executive IT & QA Job Tracker")
 
 def load_data():
     conn = get_db_connection()
@@ -56,52 +44,42 @@ def load_data():
     conn.close()
     return df
 
-def update_job_details(job_id, status, salary, manager, notes):
+def update_db(edited_df):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE job_applications 
-        SET status = ?, salary_range = ?, hiring_manager = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    """, (status, salary, manager, notes, job_id))
+    # Batch update changed rows
+    for _, row in edited_df.iterrows():
+        cursor.execute("""
+            UPDATE job_applications 
+            SET status = ?, salary_range = ?, hiring_manager = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (row['status'], row['salary_range'], row['hiring_manager'], row['notes'], row['id']))
     conn.commit()
     conn.close()
 
-# Main Board View
-try:
-    data = load_data()
-except Exception as e:
-    st.error(f"Error connecting to database: {e}")
-    st.info("Make sure you have run 'python db.py' once to initialize your Turso table!")
-    st.stop()
-
+data = load_data()
 statuses = ["NEW", "IN_PROGRESS", "APPLIED", "CLOSED"]
-cols = st.columns(4)
+tabs = st.tabs(statuses)
 
 for i, status in enumerate(statuses):
-    with cols[i]:
-        st.subheader(f"{status} ({len(data[data['status'] == status])})")
-        st.markdown("---")
-        
+    with tabs[i]:
         filtered_df = data[data['status'] == status]
-        for _, job in filtered_df.iterrows():
-            with st.expander(f"**{job['title']}**\n\n*{job['company']} ({job['source']})*"):
-                st.write(f"📍 **Location:** {job['location']}")
-                st.markdown(f"🔗 [Direct Application Link]({job['url']})")
-                
-                # Dynamic Editable Inputs
-                salary = st.text_input("Salary", value=job['salary_range'], key=f"sal_{job['id']}")
-                manager = st.text_input("Hiring Manager / Recruiter", value=job['hiring_manager'], key=f"hm_{job['id']}")
-                notes = st.text_area("Notes / Next Steps", value=job['notes'] or "", key=f"notes_{job['id']}")
-                
-                new_status = st.selectbox(
-                    "Move Status Queue", 
-                    options=statuses, 
-                    index=statuses.index(job['status']),
-                    key=f"status_{job['id']}"
-                )
-                
-                if st.button("Update Card", key=f"btn_{job['id']}"):
-                    update_job_details(job['id'], new_status, salary, manager, notes)
-                    st.success("Card updated!")
-                    st.rerun()
+        st.subheader(f"{status} ({len(filtered_df)})")
+        
+        # Grid-based editor
+        edited_df = st.data_editor(
+            filtered_df,
+            column_config={
+                "url": st.column_config.LinkColumn("Link"),
+                "status": st.column_config.SelectboxColumn("Status", options=statuses),
+                "notes": st.column_config.TextColumn("Notes", width="medium"),
+            },
+            hide_index=True,
+            use_container_width=True,
+            key=f"editor_{status}"
+        )
+        
+        if st.button(f"Save Changes ({status})", key=f"btn_{status}"):
+            update_db(edited_df)
+            st.success("Changes saved!")
+            st.rerun()
