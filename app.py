@@ -94,15 +94,24 @@ for i, status in enumerate(statuses):
         # Grid-based editor
         edited_df = st.data_editor(
             filtered_df,
+            column_order=[
+                "title", "url", "status", "notes", "cv_match_verified", "cv_submitted", 
+                "hm_outreach_completed", "last_follow_up_note", "follow_up_count", 
+                "salary_range", "hiring_manager", "contact_email"
+            ],
             column_config={
+                "title": st.column_config.TextColumn("Title", width="medium"),
                 "url": st.column_config.LinkColumn("Link"),
                 "status": st.column_config.SelectboxColumn("Status", options=statuses),
+                "notes": st.column_config.TextColumn("Notes", width="medium"),
                 "cv_match_verified": st.column_config.CheckboxColumn("CV Match"),
                 "cv_submitted": st.column_config.CheckboxColumn("Submitted"),
                 "hm_outreach_completed": st.column_config.CheckboxColumn("HM Outreach"),
+                "last_follow_up_note": st.column_config.TextColumn("Last Follow-up"),
                 "follow_up_count": st.column_config.NumberColumn("Follow-up #", min_value=0),
-                "last_follow_up_note": st.column_config.TextColumn("Last Follow-up Note"),
-                "notes": st.column_config.TextColumn("Notes", width="medium"),
+                "salary_range": st.column_config.TextColumn("Salary"),
+                "hiring_manager": st.column_config.TextColumn("HM"),
+                "contact_email": st.column_config.TextColumn("Email"),
             },
             hide_index=True,
             use_container_width=True,
