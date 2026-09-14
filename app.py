@@ -58,7 +58,7 @@ def update_db(edited_df):
     conn.close()
 
 data = load_data()
-statuses = ["NEW", "IN_PROGRESS", "APPLIED", "CLOSED"]
+statuses = ["NEW", "IN_PROGRESS", "APPLIED", "CLOSED", "TO_REVIEW"]
 tabs = st.tabs(statuses)
 
 for i, status in enumerate(statuses):
