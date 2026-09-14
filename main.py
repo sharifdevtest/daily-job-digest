@@ -128,8 +128,8 @@ def upsert_to_turso(jobs):
             # 1. Insert new job record
             cursor.execute("""
                 INSERT INTO job_applications 
-                (id, title, company, location, url, source, status, salary_range, hiring_manager, contact_email, notes, discovered_at, updated_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                (id, title, company, location, url, source, status, salary_range, hiring_manager, contact_email, notes, discovered_at, updated_at, last_seen_at, cv_match_verified, cv_submitted, hm_outreach_completed, follow_up_count, last_follow_up_note)
+                VALUES (?, ?, ?, ?, ?, ?, 'NEW', ?, ?, ?, '', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0, 0, 0, 0, '')
             """, (
                 job_id,
                 job['title'],

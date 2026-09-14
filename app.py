@@ -49,11 +49,30 @@ def update_db(edited_df):
     cursor = conn.cursor()
     # Batch update changed rows
     for _, row in edited_df.iterrows():
+        # Smart logic: Auto-move to "APPLIED" if submitted
+        new_status = row['status']
+        if row['cv_submitted'] and new_status == "NEW":
+            new_status = "APPLIED"
+            
         cursor.execute("""
             UPDATE job_applications 
-            SET status = ?, salary_range = ?, hiring_manager = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+            SET status = ?, salary_range = ?, hiring_manager = ?, notes = ?,
+                cv_match_verified = ?, 
+                cv_submitted = ?, 
+                hm_outreach_completed = ?, 
+                follow_up_count = ?, 
+                last_follow_up_note = ?, 
+                updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        """, (row['status'], row['salary_range'], row['hiring_manager'], row['notes'], row['id']))
+        """, (
+            new_status, row['salary_range'], row['hiring_manager'], row['notes'],
+            int(row['cv_match_verified']), 
+            int(row['cv_submitted']), 
+            int(row['hm_outreach_completed']), 
+            row['follow_up_count'], 
+            row['last_follow_up_note'], 
+            row['id']
+        ))
     conn.commit()
     conn.close()
 
@@ -72,6 +91,11 @@ for i, status in enumerate(statuses):
             column_config={
                 "url": st.column_config.LinkColumn("Link"),
                 "status": st.column_config.SelectboxColumn("Status", options=statuses),
+                "cv_match_verified": st.column_config.CheckboxColumn("CV Match"),
+                "cv_submitted": st.column_config.CheckboxColumn("Submitted"),
+                "hm_outreach_completed": st.column_config.CheckboxColumn("HM Outreach"),
+                "follow_up_count": st.column_config.NumberColumn("Follow-up #", min_value=0),
+                "last_follow_up_note": st.column_config.TextColumn("Last Follow-up Note"),
                 "notes": st.column_config.TextColumn("Notes", width="medium"),
             },
             hide_index=True,

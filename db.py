@@ -17,7 +17,6 @@ def init_db(force_reset=False):
     if force_reset:
         print("[DB Reset] Dropping existing 'job_applications' table...")
         cursor.execute("DROP TABLE IF EXISTS job_applications")
-    
     # Clean, modern v2 schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS job_applications (
@@ -34,7 +33,12 @@ def init_db(force_reset=False):
             notes TEXT,
             discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            cv_match_verified BOOLEAN DEFAULT 0,
+            cv_submitted BOOLEAN DEFAULT 0,
+            hm_outreach_completed BOOLEAN DEFAULT 0,
+            follow_up_count INTEGER DEFAULT 0,
+            last_follow_up_note TEXT
         )
     """)
     
