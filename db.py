@@ -30,6 +30,7 @@ def init_db(force_reset=False):
             salary_range TEXT,
             hiring_manager TEXT,
             contact_email TEXT,
+            description TEXT,
             notes TEXT,
             discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -38,9 +39,28 @@ def init_db(force_reset=False):
             cv_submitted BOOLEAN DEFAULT 0,
             hm_outreach_completed BOOLEAN DEFAULT 0,
             follow_up_count INTEGER DEFAULT 0,
-            last_follow_up_note TEXT
+            last_follow_up_note TEXT,
+            match_score REAL,
+            missing_skills TEXT,
+            tailored_resume_path TEXT
         )
     """)
+    
+    # Ensure new columns exist for existing tables
+    columns_to_add = {
+        'match_score': 'REAL',
+        'missing_skills': 'TEXT',
+        'tailored_resume_path': 'TEXT',
+        'description': 'TEXT'
+    }
+    
+    cursor.execute("PRAGMA table_info(job_applications)")
+    existing_columns = [col[1] for col in cursor.fetchall()]
+    
+    for col, col_type in columns_to_add.items():
+        if col not in existing_columns:
+            print(f"[DB Migration] Adding column '{col}' to 'job_applications'...")
+            cursor.execute(f"ALTER TABLE job_applications ADD COLUMN {col} {col_type}")
     
     conn.commit()
     conn.close()

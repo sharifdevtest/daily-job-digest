@@ -4,6 +4,30 @@ Welcome to the **Executive QA/IT Job Tracker** developer instructions manual. Th
 
 ---
 
+## 📝 Recent Enhancements
+*   **Dashboard UI:** Reordered fields to display only required data, migrated from card-based to grid view layout.
+*   **Data Model & Tracking:** Added fields for CV match status, outreach tracking, follow-up count, and notes.
+*   **Statuses:** Introduced `TO_REVIEW` application status.
+*   **Performance:** Implemented Streamlit performance improvements and bug fixes.
+
+---
+
+## 🏗️ Architectural Execution Plan: Resume Tailoring
+
+This plan defines the pipeline for automated resume customization based on job descriptions.
+
+### 1. Phase Overview
+*   **Data Bridge:** Extracts job details (`TITLE`, `COMPANY`, `DESCRIPTION`, `REQUIREMENTS`).
+*   **Scoring Engine:** Calculates match score via skill extraction and semantic alignment (threshold: ≥75%).
+*   **Rewriting Engine:** Uses Gemini to rewrite bullet points using the **Action-Impact formula** (`Verb + Task + Tool + Metric`).
+*   **Template Injection:** Injects tailored content into `master_base_resume.docx` using `docxtpl`.
+
+### 2. Implementation Status
+*   **Logic (`tailor_resume.py`):** Core scoring, rewriting, and injection modules are implemented.
+*   **Pending:** Full integration into `main.py` pipeline and substitution of dummy data with actual JD content.
+
+---
+
 ## 🛠️ Project Tech Stack
 
 * **Frontend Dashboard:** Streamlit
