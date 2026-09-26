@@ -38,6 +38,19 @@ if not check_password():
 st.set_page_config(page_title="Executive Job Tracker", layout="wide")
 st.title("💼 Executive IT & QA Job Tracker")
 
+# Quick Add Section
+with st.expander("➕ Quick Add LinkedIn Job"):
+    url = st.text_input("Enter LinkedIn Job URL")
+    if st.button("Add Job"):
+        if url:
+            from main import manual_add_linkedin
+            success, message = manual_add_linkedin(url)
+            if success:
+                st.success(message)
+                st.cache_data.clear()
+            else:
+                st.error(f"Error: {message}")
+
 @st.cache_data(ttl=600)
 def load_data():
     conn = get_db_connection()

@@ -170,7 +170,37 @@ def upsert_to_turso(jobs):
     print(f"[Turso DB Sync] Added: {len(new_jobs)} new records | Updated: {updated_count} existing records.")
     return new_jobs
 
+
+def manual_add_linkedin(url):
+    """Manually adds a job to Turso by scraping basic info from a LinkedIn URL."""
+    # We can reuse the scraper logic but simplified for one URL
+    import requests
+    from bs4 import BeautifulSoup
+    from scrapers.linkedin import clean_text, HEADERS
+    
+    try:
+        res = requests.get(url, headers=HEADERS, timeout=15)
+        soup = BeautifulSoup(res.text, "html.parser")
+        
+        # Simple extraction
+        title = clean_text(soup.select_one("h1.top-card-layout__title").get_text()) if soup.select_one("h1.top-card-layout__title") else "Manual Entry"
+        company = clean_text(soup.select_one("a.topcard__org-name-link").get_text()) if soup.select_one("a.topcard__org-name-link") else "Manual Entry"
+        
+        job = {
+            "title": title,
+            "company": company,
+            "link": url,
+            "source": "LinkedIn (Manual)"
+        }
+        
+        # Reuse existing upsert logic by passing a single-item list
+        upsert_to_turso([job])
+        return True, f"Successfully added: {title} at {company}"
+    except Exception as e:
+        return False, str(e)
+
 if __name__ == "__main__":
+
     init_db()
     config = load_config()
     
